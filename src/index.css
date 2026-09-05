@@ -1371,6 +1371,13 @@ footer {
 }
 
 .drawer-actions { display: grid; gap: 16px; margin-top: 28px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,.1); }
+.flow-rail { display: flex; justify-content: center; gap: 18px; padding: 18px 5%; color: #68717e; font: 8px "DM Mono", monospace; letter-spacing: .08em; }
+.flow-rail span { position: relative; }.flow-rail span:not(:last-child)::after { content: "→"; position: absolute; left: calc(100% + 7px); color: #4e5662; }.flow-rail .active { color: var(--accent-pink-soft); }
+.business-trigger { color: var(--accent-pink-soft); white-space: nowrap; }
+.business-modal-backdrop { position: fixed; inset: 0; z-index: 20; display: grid; justify-items: end; background: rgba(2,4,9,.6); backdrop-filter: blur(12px); }
+.business-modal { width: min(470px, 92vw); height: 100%; padding: 34px; background: #090c13; border-left: 1px solid rgba(var(--accent-pink-rgb), .4); animation: drawerIn .28s ease-out; }
+.business-modal h2 { margin: 24px 0 12px; font-size: 34px; }.business-modal p { color: #aeb5c1; line-height: 1.6; }.business-facts { display: grid; gap: 1px; margin-top: 30px; background: rgba(255,255,255,.1); }.business-facts div { padding: 16px; background: #0d111a; }.business-facts span { color: #727b88; font: 8px "DM Mono", monospace; letter-spacing: .1em; }.business-facts strong { display: block; margin-top: 7px; font-size: 14px; }
+@keyframes drawerIn { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: translateX(0); } }
 .incident-preview { margin-top: 24px; padding: 20px; border: 1px solid rgba(255,113,95,.35); background: rgba(255,85,71,.06); }
 .incident-preview h3 { margin: 10px 0 16px; font-size: 22px; }
 .incident-preview p { color: #aeb5c1; font-size: 12px; line-height: 1.5; }

@@ -8,6 +8,15 @@ import { policyFor } from "./engine/policyEngine";
 import { simulateRecovery } from "./engine/recoverySimulator";
 
 const bootMessages = ["CONNECTING TO PAYMENT SIGNALS", "NORMALIZING TRANSACTIONS", "CALCULATING RECOVERABILITY", "SIGNAL ACQUIRED"];
+const failureScenarios = [
+  { id: "card_declined", code: "CARD_DECLINED", reason: "Card declined", title: "Use another payment method", guidance: "Your issuer declined this card. Try another card or payment method before retrying." },
+  { id: "insufficient_funds", code: "INSUFFICIENT_FUNDS", reason: "Insufficient funds", title: "Use an alternate funding method", guidance: "The account could not cover this payment. Add funds or choose another payment method." },
+  { id: "3ds_failed", code: "AUTH_FAILED", reason: "3DS authentication failed", title: "Complete verification", guidance: "Your bank needs authentication to finish this payment. Re-authenticate, then try again." },
+  { id: "currency_restriction", code: "REGIONAL_DECLINE", reason: "Currency restriction", title: "Review payment currency", guidance: "This issuer does not support the selected currency or region. Try a supported currency or method." },
+  { id: "network_timeout", code: "ISSUER_TIMEOUT", reason: "Network timeout", title: "Try again after cooldown", guidance: "The issuer did not respond in time. A controlled retry after a short cooldown is safest." },
+  { id: "issuer_unavailable", code: "ISSUER_UNAVAILABLE", reason: "Issuer unavailable", title: "Try another method", guidance: "The issuer is temporarily unavailable. Use another method while the bank recovers." },
+];
+const merchantBusiness = { category: "Global SaaS & Subscriptions", description: "ACME Global sells premium workflow software to international teams and collects recurring payments across multiple regions.", plan: "Enterprise Growth", frequency: "Monthly billing", activeSubscriptions: 1840 };
 
 function App() {
   const [screen, setScreen] = useState(() => {
@@ -23,6 +32,8 @@ function App() {
   const [investigating, setInvestigating] = useState(false);
   const [investigationStage, setInvestigationStage] = useState(0);
   const [simulation, setSimulation] = useState(null);
+  const [activeScenario] = useState(() => failureScenarios[Math.floor(Math.random() * failureScenarios.length)]);
+  const [businessOpen, setBusinessOpen] = useState(false);
   const analysis = useMemo(() => analyzeTransactions(allPayments), []);
   const visibleTransactions = analysis.failed.filter((item) => filter === "ALL" || item.failure_reason === filter);
 
@@ -60,8 +71,8 @@ function App() {
 
   if (screen === "loading") return <Loading progress={progress} />;
   if (screen === "entry") return <Entry setScreen={navigate} />;
-  if (screen === "user") return <UserExperience transaction={userTransaction} analysis={analysis} step={userStep} setStep={setUserStep} onBack={() => navigate("loading")} />;
-  if (screen === "merchant") return <div className="screen-shell"><Strands /><MerchantExperience analysis={analysis} transactions={visibleTransactions} filter={filter} setFilter={setFilter} selected={selected} setSelected={setSelected} investigating={investigating} investigationStage={investigationStage} runInvestigation={startMerchantInvestigation} simulation={simulation} runSimulation={() => { setSimulation(simulateRecovery(analysis)); navigate("impact"); }} onBack={() => navigate("loading")} /></div>;
+  if (screen === "user") return <UserExperience transaction={userTransaction} analysis={analysis} scenario={activeScenario} step={userStep} setStep={setUserStep} onBack={() => navigate("loading")} />;
+  if (screen === "merchant") return <div className="screen-shell"><Strands /><MerchantExperience analysis={analysis} transactions={visibleTransactions} filter={filter} setFilter={setFilter} selected={selected} setSelected={setSelected} investigating={investigating} investigationStage={investigationStage} runInvestigation={startMerchantInvestigation} simulation={simulation} runSimulation={() => { setSimulation(simulateRecovery(analysis)); navigate("impact"); }} onBack={() => navigate("loading")} onBusinessDetails={() => setBusinessOpen(true)} /></div>;
   return <div className="screen-shell"><Strands /><Impact onBack={() => navigate("merchant")} simulation={simulation} /></div>;
 }
 
@@ -73,16 +84,18 @@ function Entry({ setScreen }) {
   return <main className="portal-screen"><Strands /><div className="screen-content"><header className="portal-header"><div className="brand">RAZORRECOVER</div><span className="mode-label">SIMULATED AUTHENTICATION / SELECT A PORTAL</span></header><div className="portal-split"><button className="portal-half portal-user" onClick={() => setScreen("user")}><span className="portal-index">01 / USER</span><strong>User<br /><em>Portal</em></strong><small>Understand a failed payment and what to do next.</small><span className="portal-action">ENTER USER VIEW ↗</span></button><button className="portal-half portal-merchant" onClick={() => setScreen("merchant")}><span className="portal-index">02 / MERCHANT</span><strong>Merchant<br /><em>Portal</em></strong><small>Find failure patterns and recover lost revenue.</small><span className="portal-action">ENTER COMMAND CENTER ↗</span></button></div></div></main>;
 }
 
-function UserExperience({ transaction, analysis, step, setStep, onBack }) {
-  const diagnosis = step === "investigation" ? investigationFor(transaction, analysis) : null;
-  return <main className="user-screen"><Strands /><div className="screen-content"><header className="product-bar"><button className="brand-button" onClick={onBack}>RAZORRECOVER</button><span className="mode-label">USER VIEW / SIMULATED</span></header><div className={`user-stage ${step === "investigation" ? "investigating-stage" : ""}`}>{step === "checkout" && <div className="checkout-panel"><span className="eyebrow">SECURE PAYMENT</span><h1>Pay for order.</h1><div className="order-line"><span>Premium Plan</span><strong>{formatMoney(transaction.amount)}</strong></div><div className="payment-method"><span>PAYMENT METHOD</span><strong>Visa ending 4242</strong><small>International card / 3DS ready</small></div><button className="primary-button" onClick={() => { setStep("processing"); window.setTimeout(() => setStep("authorizing"), 650); window.setTimeout(() => setStep("failed"), 1300); window.setTimeout(() => setStep("investigation"), 2100); }}>PAY NOW <span>↗</span></button></div>}{step === "processing" && <Processing title="PAYMENT INITIATED" detail="Connecting to issuer network" />}{step === "authorizing" && <Processing title="AUTHORIZING" detail="Checking issuer and authentication state" />}{step === "failed" && <Processing title="PAYMENT FAILED" detail="Issuer response received" failed />}{step === "investigation" && <UserInvestigation transaction={transaction} diagnosis={diagnosis} />}</div></div></main>;
+function UserExperience({ transaction, analysis, scenario, step, setStep, onBack }) {
+  const diagnosis = step === "investigation" ? { ...investigationFor(transaction, analysis), transaction: { ...transaction, failure_code: scenario.code, failure_reason: scenario.reason }, policy: { label: scenario.title, action: scenario.id === "3ds_failed" ? "COMPLETE_VERIFICATION" : scenario.id === "network_timeout" ? "RETRY_AFTER_COOLDOWN" : "USE_ALTERNATIVE_METHOD" } } : null;
+  return <main className="user-screen"><Strands /><div className="screen-content"><header className="product-bar"><button className="brand-button" onClick={onBack}>RAZORRECOVER</button><span className="mode-label">USER VIEW / SIMULATED</span></header><FlowRail step={step} /><div className={`user-stage ${step === "investigation" ? "investigating-stage" : ""}`}>{step === "checkout" && <div className="checkout-panel"><span className="eyebrow">SECURE PAYMENT</span><h1>Pay for order.</h1><div className="order-line"><span>Premium Plan</span><strong>{formatMoney(transaction.amount)}</strong></div><div className="payment-method"><span>PAYMENT METHOD</span><strong>Visa ending 4242</strong><small>International card / 3DS ready</small></div><button className="primary-button" onClick={() => { setStep("processing"); window.setTimeout(() => setStep("authorizing"), 650); window.setTimeout(() => setStep("failed"), 1300); window.setTimeout(() => setStep("investigation"), 2100); }}>PAY NOW <span>↗</span></button></div>}{step === "processing" && <Processing title="PAYMENT INITIATED" detail="Connecting to issuer network" />}{step === "authorizing" && <Processing title="AUTHORIZING" detail="Checking issuer and authentication state" />}{step === "failed" && <Processing title={scenario.reason.toUpperCase()} detail="Issuer response received" failed />}{step === "investigation" && <UserInvestigation transaction={diagnosis.transaction} diagnosis={diagnosis} scenario={scenario} />}</div></div></main>;
 }
+
+function FlowRail({ step }) { const active = step === "checkout" ? 0 : step === "investigation" ? 2 : step === "failed" ? 1 : 1; return <div className="flow-rail">{["FAILURE", "DIAGNOSIS", "AI INSIGHT", "ACTION", "REVENUE SAVED"].map((label, index) => <span className={index <= active ? "active" : ""} key={label}>{label}</span>)}</div>; }
 
 function Processing({ title, detail, failed }) { return <div className={`processing ${failed ? "failed" : ""}`}><span className="eyebrow">PAYMENT FLOW</span><div className="processing-ring" /><h1>{title}</h1><p>{detail}</p><div className="processing-line" /></div>; }
 
-function UserInvestigation({ transaction, diagnosis }) {
+function UserInvestigation({ transaction, diagnosis, scenario }) {
   const facts = [["TRANSACTION ID", transaction.transaction_id], ["COUNTRY / CURRENCY", `${transaction.country} / ${transaction.currency}`], ["AMOUNT", formatMoney(transaction.amount)], ["PAYMENT METHOD", transaction.payment_type], ["ISSUER REGION", transaction.issuer_region], ["FAILURE CODE", transaction.failure_code], ["RETRY COUNT", transaction.retry_count], ["3DS STATUS", transaction.is_3ds_supported ? "SUPPORTED" : "UNAVAILABLE"], ["PREVIOUS SUCCESS", transaction.previous_customer_success ? "YES" : "NO"]];
-  return <div className="user-investigation"><div className="investigation-heading"><span className="eyebrow">AI PAYMENT INVESTIGATION</span><h1>We found the<br /><span>signal.</span></h1></div><div className="investigation-grid"><div className="transaction-facts">{facts.map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div><div className="diagnosis"><div className="agent-console"><span>RAZORRECOVER AI</span><p>&gt; Inspecting transaction<br />&gt; Checking issuer response<br />&gt; Comparing similar failures<br />&gt; Applying recovery policy</p></div><div className="diagnosis-result"><span className="eyebrow">ROOT CAUSE</span><h2>{transaction.failure_reason}</h2><div className="confidence"><span>CONFIDENCE</span><strong>{diagnosis.confidence}%</strong></div><span className="eyebrow">EVIDENCE</span><ul>{diagnosis.evidence.map((item) => <li key={item}>{item}</li>)}</ul><div className="recommendation"><span className="eyebrow">RECOMMENDED ACTION</span><strong>{diagnosis.policy.label}</strong><p>{diagnosis.policy.action === "STOP" ? "Further attempts are unlikely to recover this payment. Please complete authentication or use another payment method." : "This payment is likely recoverable. Waiting before retrying is safer than repeatedly attempting the payment."}</p></div></div></div></div></div>;
+  return <div className="user-investigation"><div className="investigation-heading"><span className="eyebrow">AI PAYMENT INVESTIGATION / {scenario.id}</span><h1>We found the<br /><span>signal.</span></h1></div><div className="investigation-grid"><div className="transaction-facts">{facts.map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div><div className="diagnosis"><div className="agent-console"><span>RAZORRECOVER AI</span><p>&gt; Inspecting transaction<br />&gt; Evaluating {scenario.code}<br />&gt; Checking previous customer success<br />&gt; Mapping policy guardrails</p></div><div className="diagnosis-result"><span className="eyebrow">ROOT CAUSE</span><h2>{scenario.reason}</h2><div className="confidence"><span>CONFIDENCE</span><strong>{diagnosis.confidence}%</strong></div><span className="eyebrow">AI GUIDANCE</span><p>{scenario.guidance}</p><span className="eyebrow">EVIDENCE</span><ul>{diagnosis.evidence.map((item) => <li key={item}>{item}</li>)}</ul><div className="recommendation"><span className="eyebrow">RECOMMENDED ACTION</span><strong>{diagnosis.policy.label}</strong><p>{scenario.guidance}</p></div></div></div></div></div>;
 }
 
 function MerchantExperience({ analysis, transactions, filter, setFilter, selected, setSelected, investigating, investigationStage, runInvestigation, simulation, runSimulation, onBack }) {
@@ -99,7 +112,12 @@ function MerchantExperience({ analysis, transactions, filter, setFilter, selecte
 function Metric({ label, value }) { return <div className="metric"><span>{label}</span><strong>{value}</strong></div>; }
 function Panel({ title, subtitle, children }) {
   const issue = title === "AI STATUS" ? analyzeTransactions(allPayments).systemicIssue : null;
-  return <div className="data-panel"><div className="panel-title"><div><span>{title}</span><small>{subtitle}</small></div><i>↗</i></div>{children}{issue && <SystemicWarning issue={issue} />}</div>;
+  const [businessOpen, setBusinessOpen] = useState(false);
+  return <div className="data-panel"><div className="panel-title"><div><span>{title}</span><small>{subtitle}</small></div>{title === "FAILURE REASONS" ? <button className="text-button business-trigger" onClick={() => setBusinessOpen(true)}>VIEW BUSINESS ↗</button> : <i>↗</i>}</div>{children}{issue && <SystemicWarning issue={issue} />}{businessOpen && <BusinessDetails onClose={() => setBusinessOpen(false)} />}</div>;
+}
+
+function BusinessDetails({ onClose }) {
+  return <div className="business-modal-backdrop" onClick={onClose}><aside className="business-modal" onClick={(event) => event.stopPropagation()}><button className="close-button" onClick={onClose}>CLOSE ×</button><span className="eyebrow">MERCHANT PROFILE</span><h2>ACME Global</h2><p>{merchantBusiness.description}</p><div className="business-facts"><div><span>BUSINESS CATEGORY</span><strong>{merchantBusiness.category}</strong></div><div><span>SUBSCRIPTION PLAN</span><strong>{merchantBusiness.plan}</strong></div><div><span>BILLING FREQUENCY</span><strong>{merchantBusiness.frequency}</strong></div><div><span>ACTIVE SUBSCRIPTIONS</span><strong>{merchantBusiness.activeSubscriptions.toLocaleString()}</strong></div></div></aside></div>;
 }
 
 function SystemicWarning({ issue }) {
